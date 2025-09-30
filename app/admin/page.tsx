@@ -197,6 +197,91 @@ export default function AdminPage() {
     setExhibitions((prev) => [next, ...prev])
   }
 
+  // Parse many date formats safely: ISO, DD-MM-YYYY, DD/MM/YYYY, and Excel serial
+  function parseDateSafe(value: any): Date | null {
+    if (!value) return null
+    if (value instanceof Date && !isNaN(value.getTime())) return value
+    if (typeof value === "number" && isFinite(value)) {
+      const base = Date.UTC(1899, 11, 30) // Excel epoch
+      const ms = Math.round(value * 86400000)
+      const d = new Date(base + ms)
+      return isNaN(d.getTime()) ? null : d
+    }
+    if (typeof value === "string") {
+      const s = value.trim()
+      if (!s) return null
+      const parsed = Date.parse(s)
+      if (!isNaN(parsed)) return new Date(parsed)
+      const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+      if (m) {
+        const dd = m[1].padStart(2, "0")
+        const mm = m[2].padStart(2, "0")
+        const yyyy = m[3]
+        const d = new Date(`${yyyy}-${mm}-${dd}T00:00:00Z`)
+        return isNaN(d.getTime()) ? null : d
+      }
+    }
+    return null
+  }
+
+  function normalizeDateToISO(value: any): string {
+    const d = parseDateSafe(value)
+    return d ? d.toISOString().slice(0, 10) : ""
+  }
+
+  // Import from Excel/CSV -> append to exhibitions
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async (ev) => {
+      try {
+        const XLSX = await import("xlsx")
+        const data = new Uint8Array(ev.target?.result as ArrayBuffer)
+        const workbook = XLSX.read(data, { type: "array" })
+        const sheetName = workbook.SheetNames[0]
+        const worksheet = workbook.Sheets[sheetName]
+        const json = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: "" })
+        const imported: Exhibition[] = json
+          .map((row) => {
+            const name = String(row.name || row.Name || row["Exhibition Name"] || "").trim()
+            const industry = String(row.industry || row.Industry || "").trim()
+            const city = String(row.city || row.City || "").trim()
+            const country = String(row.country || row.Country || "").trim()
+            const startDate = normalizeDateToISO(
+              row.startDate ?? row["start_date"] ?? row["Start Date"] ?? row["Start"] ?? "",
+            )
+            const endDate = normalizeDateToISO(
+              row.endDate ?? row["end_date"] ?? row["End Date"] ?? row["End"] ?? "",
+            )
+            const statusRaw = String(row.status || row.Status || "published").trim().toLowerCase()
+            const status: Exhibition["status"] = statusRaw === "draft" ? "draft" : "published"
+            if (!name) return null
+            return {
+              id: `ex-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              name,
+              industry,
+              city,
+              country,
+              startDate,
+              endDate,
+              status,
+            } as Exhibition
+          })
+          .filter(Boolean) as Exhibition[]
+        if (imported.length) {
+          setExhibitions((prev) => [...imported, ...prev])
+        }
+      } catch (err) {
+        console.error("Failed to import file", err)
+        alert("Failed to import file. Please ensure the format is valid.")
+      } finally {
+        e.currentTarget.value = ""
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
   function updateLeadStatus(id: string, status: Lead["status"]) {
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status } : l)))
   }
@@ -368,6 +453,22 @@ export default function AdminPage() {
               {t.exportExcel}
             </Button>
 
+            {/* Import button and hidden file input */}
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+              id="exhibitions-import-input"
+              className="hidden"
+              onChange={handleImportFile}
+            />
+            <Button
+              variant="secondary"
+              className="flex items-center gap-2 transition hover:-translate-y-0.5 hover:shadow-md"
+              onClick={() => document.getElementById("exhibitions-import-input")?.click()}
+            >
+              <FileDown size={16} /> Import
+            </Button>
+
             <Dialog open={addOpen} onOpenChange={setAddOpen}>
               <DialogTrigger asChild>
                 <Button className="flex items-center gap-2 transition hover:-translate-y-0.5 hover:shadow-md">
@@ -527,7 +628,7 @@ export default function AdminPage() {
                       {e.city}, {e.country}
                     </TableCell>
                     <TableCell>
-                      {format(new Date(e.startDate), "MMM d, yyyy")} – {format(new Date(e.endDate), "MMM d, yyyy")}
+                      {parseDateSafe(e.startDate) ? format(parseDateSafe(e.startDate) as Date, "MMM d, yyyy") : "—"} – {parseDateSafe(e.endDate) ? format(parseDateSafe(e.endDate) as Date, "MMM d, yyyy") : "—"}
                     </TableCell>
                     <TableCell>
                       <span
@@ -653,8 +754,9 @@ export default function AdminPage() {
                   <div>
                     <div className="text-muted-foreground">Dates</div>
                     <div>
-                      {format(new Date(viewItem.startDate), "MMM d, yyyy")} –{" "}
-                      {format(new Date(viewItem.endDate), "MMM d, yyyy")}
+                      {parseDateSafe(viewItem.startDate) ? format(parseDateSafe(viewItem.startDate) as Date, "MMM d, yyyy") : "—"}
+                      {" "}–{" "}
+                      {parseDateSafe(viewItem.endDate) ? format(parseDateSafe(viewItem.endDate) as Date, "MMM d, yyyy") : "—"}
                     </div>
                   </div>
                   <div className="md:col-span-2">
@@ -976,7 +1078,7 @@ export default function AdminPage() {
             </h3>
             <div className="overflow-x-auto rounded border">
               <Table className="table-fixed w-full">
-                <TableHeader className="bg-primary/5">
+                <TableHeader className="bg-primary/10 text-primary">
                   <TableRow>
                     <TableHead className="w-[240px]">Interaction Type</TableHead>
                     <TableHead className="w-32 text-right">Count</TableHead>
@@ -992,7 +1094,7 @@ export default function AdminPage() {
                     { type: "Chat Sessions", count: 980, rate: "4.8%", trend: "up" },
                     { type: "Guide Downloads", count: 3148, rate: "7.0%", trend: "down" },
                   ].map((r) => (
-                    <TableRow key={r.type} className="transition hover:bg-primary/5">
+                    <TableRow key={r.type} className="transition hover:bg-primary/10 odd:bg-background even:bg-primary/5/50">
                       <TableCell className="font-medium flex items-center gap-2">
                         {r.type === "Call Clicks" && <PhoneIcon />}
                         {r.type === "Meeting Bookings" && <CalendarCheck className="h-4 w-4" />}
@@ -1001,8 +1103,12 @@ export default function AdminPage() {
                         {r.type === "Guide Downloads" && <FileDown className="h-4 w-4" />}
                         {r.type}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{r.count}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.rate}</TableCell>
+                      <TableCell className="text-right tabular-nums text-primary font-semibold">{r.count}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <span className="inline-block rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 text-xs">
+                          {r.rate}
+                        </span>
+                      </TableCell>
                       <TableCell className="flex items-center gap-1 justify-end">
                         <TrendIcon trend={r.trend as any} />
                         {r.trend}
@@ -1020,7 +1126,7 @@ export default function AdminPage() {
             </h3>
             <div className="overflow-x-auto rounded border">
               <Table className="table-fixed w-full">
-                <TableHeader className="bg-primary/5">
+                <TableHeader className="bg-primary/10 text-primary">
                   <TableRow>
                     <TableHead className="w-[240px]">Lead Stage</TableHead>
                     <TableHead className="w-32 text-right">Count</TableHead>
@@ -1036,11 +1142,19 @@ export default function AdminPage() {
                     { stage: "Follow-up Required", count: 190, conversion: "—", quality: 58 },
                     { stage: "High-Value Prospects", count: 70, conversion: "—", quality: 90 },
                   ].map((r) => (
-                    <TableRow key={r.stage} className="transition hover:bg-primary/5">
+                    <TableRow key={r.stage} className="transition hover:bg-primary/10 odd:bg-background even:bg-primary/5/50">
                       <TableCell className="font-medium">{r.stage}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.count}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.conversion}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.quality}</TableCell>
+                      <TableCell className="text-right tabular-nums text-emerald-600 dark:text-emerald-400 font-semibold">{r.count}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <span className="inline-block rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 text-xs">
+                          {r.conversion}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <span className="inline-block rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400 px-2 py-0.5 text-xs">
+                          {r.quality}
+                        </span>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1055,7 +1169,7 @@ export default function AdminPage() {
             </h3>
             <div className="overflow-x-auto rounded border">
               <Table className="table-fixed w-full">
-                <TableHeader className="bg-primary/5">
+                <TableHeader className="bg-primary/10 text-primary">
                   <TableRow>
                     <TableHead className="w-[240px]">Exhibition</TableHead>
                     <TableHead className="w-32 text-right">Views</TableHead>
@@ -1064,12 +1178,16 @@ export default function AdminPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {exhibitions.map((e, i) => (
-                    <TableRow key={e.id} className="transition hover:bg-primary/5">
+                  {exhibitions.slice(0, 5).map((e, i) => (
+                    <TableRow key={e.id} className="transition hover:bg-primary/10 odd:bg-background even:bg-primary/5/50">
                       <TableCell className="font-medium">{e.name}</TableCell>
-                      <TableCell className="text-right tabular-nums">{1000 + i * 137}</TableCell>
-                      <TableCell className="text-right tabular-nums">{200 + i * 37}</TableCell>
-                      <TableCell className="text-right tabular-nums">{5 + (i % 6)}%</TableCell>
+                      <TableCell className="text-right tabular-nums text-fuchsia-600 dark:text-fuchsia-400 font-semibold">{1000 + i * 137}</TableCell>
+                      <TableCell className="text-right tabular-nums text-rose-600 dark:text-rose-400 font-semibold">{200 + i * 37}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <span className="inline-block rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 px-2 py-0.5 text-xs">
+                          {5 + (i % 6)}%
+                        </span>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1083,7 +1201,7 @@ export default function AdminPage() {
             </h3>
             <div className="overflow-x-auto rounded border">
               <Table className="table-fixed w-full">
-                <TableHeader className="bg-primary/5">
+                <TableHeader className="bg-primary/10 text-primary">
                   <TableRow>
                     <TableHead className="w-[240px]">Metric</TableHead>
                     <TableHead className="w-32 text-right">Value</TableHead>
@@ -1099,10 +1217,10 @@ export default function AdminPage() {
                     { metric: "Conversions", value: "120", target: "150", status: "Behind" },
                     { metric: "Conversion Rate", value: "3.1%", target: "3.5%", status: "Behind" },
                   ].map((r) => (
-                    <TableRow key={r.metric} className="transition hover:bg-primary/5">
+                    <TableRow key={r.metric} className="transition hover:bg-primary/10 odd:bg-background even:bg-primary/5/50">
                       <TableCell className="font-medium">{r.metric}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.value}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.target}</TableCell>
+                      <TableCell className="text-right tabular-nums text-primary font-semibold">{r.value}</TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">{r.target}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end">
                           <span
