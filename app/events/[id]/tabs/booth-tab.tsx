@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
 
 type Item = { id: string; label: string; unitPrice: number }
@@ -199,23 +200,34 @@ export function BoothTab({ eventId }: { eventId: string }) {
                           <div className="font-medium">{a.label}</div>
                           <div className="text-xs text-muted-foreground">${a.unitPrice} each</div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setCounts((c) => ({ ...c, [a.id]: Math.max(0, (c[a.id] || 0) - 1) }))}
-                          >
-                            -
-                          </Button>
-                          <span className="w-6 text-center">{counts[a.id] || 0}</span>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setCounts((c) => ({ ...c, [a.id]: (c[a.id] || 0) + 1 }))}
-                          >
-                            +
-                          </Button>
-                        </div>
+                        {a.id === "wifi" ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">No</span>
+                            <Switch
+                              checked={(counts[a.id] || 0) > 0}
+                              onCheckedChange={(v) => setCounts((c) => ({ ...c, [a.id]: v ? 1 : 0 }))}
+                            />
+                            <span className="text-sm">Yes</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => setCounts((c) => ({ ...c, [a.id]: Math.max(0, (c[a.id] || 0) - 1) }))}
+                            >
+                              -
+                            </Button>
+                            <span className="w-6 text-center">{counts[a.id] || 0}</span>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => setCounts((c) => ({ ...c, [a.id]: (c[a.id] || 0) + 1 }))}
+                            >
+                              +
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

@@ -10,7 +10,7 @@ import { getT } from "@/lib/i18n"
 
 export function SiteHeader() {
   const pathname = usePathname()
-  const showSearch = pathname !== "/admin"
+  const showSearch = pathname !== "/admin" && !pathname?.startsWith("/admin/")
   const lang = useAppSelector((s) => s.ui.language)
   const t = getT(lang)
 
@@ -28,12 +28,35 @@ export function SiteHeader() {
           </div>
         )}
 
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
           <LanguageSwitcher />
           {/* <ThemeToggle /> */}
-          <Button asChild className="bg-primary text-primary-foreground">
-            <Link href="/admin">{t.adminPortal}</Link>
-          </Button>
+          {pathname?.startsWith("/admin") ? (
+            <>
+              <Button asChild variant="outline" className="bg-transparent">
+                <Link href="/">View Site</Link>
+              </Button>
+              <Button
+                variant="destructive"
+                className="cursor-pointer"
+                onClick={() => {
+                  try {
+                    if (typeof window !== "undefined") {
+                      localStorage.removeItem("admin_authenticated")
+                      localStorage.removeItem("admin_user")
+                      window.location.href = "/admin/login"
+                    }
+                  } catch (e) {}
+                }}
+              >
+                Logout
+              </Button>
+            </>
+          ) : (
+            <Button asChild className="bg-primary text-primary-foreground">
+              <Link href="/admin">{t.adminPortal}</Link>
+            </Button>
+          )}
         </div>
       </div>
     </header>

@@ -7,6 +7,7 @@ import "./globals.css"
 import Providers from "./providers"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
+import { Toaster } from "@/components/ui/toaster"
 import { Suspense } from "react"
 
 export const metadata: Metadata = {
@@ -30,6 +31,7 @@ export default function RootLayout({
             <SiteFooter />
           </Suspense>
         </Providers>
+        <Toaster />
         <Analytics />
       </body>
     </html>

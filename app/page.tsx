@@ -4,6 +4,7 @@ import { CategoryGrid } from "@/components/category-grid"
 import { getFeaturedEvents, events } from "@/data/events"
 import { EventCard } from "@/components/event-card"
 import { NewsletterForm } from "@/components/newsletter-form"
+import { ActionButtonsSection } from "@/components/action-buttons-section"
 import { countryToFlag, cityToIcon } from "@/lib/utils"
 import { readdirSync } from "fs"
 import { join } from "path"
@@ -128,6 +129,8 @@ export default function HomePage() {
           <NewsletterForm />
         </div>
       </section>
+
+      <ActionButtonsSection />
 
       <ChatWidget />
     </main>

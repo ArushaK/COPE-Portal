@@ -1,5 +1,5 @@
 "use client"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { events as publicEvents } from "@/data/events"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -40,6 +40,8 @@ import {
 } from "lucide-react"
 import { useAppSelector } from "@/lib/store"
 import { getT } from "@/lib/i18n"
+import { AdminAuthGuard } from "@/components/admin-auth-guard"
+import { useToast } from "@/hooks/use-toast"
 
 type Exhibition = {
   id: string
@@ -68,6 +70,47 @@ type LeadRow = {
   phone: string
   score: number
   size: "Startup" | "SME" | "Large"
+  source: string
+  status: "new" | "contacted" | "closed" | "approved"
+}
+
+type Settings = {
+  companyName: string
+  websiteUrl: string
+  contactEmail: string
+  companyAddress: string
+  phoneCta: string
+  openaiKey: string
+  emailServiceProvider: string
+  emailApiKey: string
+  linkedinApiKey: string
+  contactRequired: {
+    firstName: boolean
+    lastName: boolean
+    email: boolean
+    phone: boolean
+    company: boolean
+  }
+  contactOptional: {
+    industry: boolean
+    country: boolean
+    newsletter: boolean
+  }
+  contactSuccessMessage: string
+  meetingSlots: string[]
+  meetingDurationMins: number
+  meetingAdvanceDays: number
+  meetingConfirmMessage: string
+  excelMaxFileMb: number
+  liveChatEnabled: boolean
+  chatWidgetPosition: "Bottom Right" | "Bottom Left"
+  chatWelcomeMessage: string
+  sessionTimeoutMins: number
+  twoFactorEnabled: boolean
+  guideFileName?: string
+  guideFilePath?: string
+  templateCsvPath?: string
+  guideObjectUrl?: string
 }
 
 const initialExhibitions: Exhibition[] = publicEvents.map((e) => ({
@@ -113,6 +156,17 @@ export default function AdminPage() {
   const [leads, setLeads] = useState<Lead[]>(initialLeads)
   const lang = useAppSelector((s) => s.ui.language)
   const t = getT(lang)
+  const { toast } = useToast()
+
+  const handleLogout = () => {
+    localStorage.removeItem("admin_authenticated")
+    localStorage.removeItem("admin_user")
+    toast({
+      title: "Logged Out",
+      description: "You have been successfully logged out.",
+    })
+    window.location.href = "/admin/login"
+  }
 
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState<{
@@ -147,9 +201,69 @@ export default function AdminPage() {
     size: "All",
     revenue: "All",
     exportFocus: "All",
+    status: "All",
   })
   const [leadResults, setLeadResults] = useState<LeadRow[]>([])
   const [selectedLeadIds, setSelectedLeadIds] = useState<Record<string, boolean>>({})
+  const [rowsToShow, setRowsToShow] = useState<number>(5)
+
+  // Settings state (persisted to localStorage for demo)
+  const defaultSettings: Settings = {
+    companyName: "Z3 Exhibition Services",
+    websiteUrl: "https://z3exhibitions.com",
+    contactEmail: "info@z3exhibitions.com",
+    companyAddress: "Zurich, Switzerland",
+    phoneCta: "+41 44 123 4567",
+    openaiKey: "",
+    emailServiceProvider: "",
+    emailApiKey: "",
+    linkedinApiKey: "",
+    contactRequired: {
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: false,
+      company: false,
+    },
+    contactOptional: {
+      industry: true,
+      country: true,
+      newsletter: true,
+    },
+    contactSuccessMessage: "Thank you for your inquiry. We will contact you soon.",
+    meetingSlots: [
+      "09:00 - 10:00",
+      "10:00 - 11:00",
+      "11:00 - 12:00",
+      "14:00 - 15:00",
+      "15:00 - 16:00",
+      "16:00 - 17:00",
+    ],
+    meetingDurationMins: 60,
+    meetingAdvanceDays: 30,
+    meetingConfirmMessage:
+      "Your meeting has been scheduled! You'll receive a confirmation email with the meeting details shortly.",
+    excelMaxFileMb: 10,
+    liveChatEnabled: true,
+    chatWidgetPosition: "Bottom Right",
+    chatWelcomeMessage:
+      "Hello! I'm here to help you with exhibition information and lead generation. How can I assist you today?",
+    sessionTimeoutMins: 60,
+    twoFactorEnabled: false,
+    guideFileName: undefined,
+    guideFilePath: "/guide.pdf",
+    templateCsvPath: "/COPE_Exhibition_Import_Template.csv",
+    guideObjectUrl: undefined,
+  }
+  const [settings, setSettings] = useState<Settings>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("admin_settings")
+        if (raw) return { ...defaultSettings, ...JSON.parse(raw) }
+      } catch {}
+    }
+    return defaultSettings
+  })
 
   const totals = useMemo(
     () => ({
@@ -298,17 +412,20 @@ export default function AdminPage() {
   const revenueOptions = ["All", "1-10M", "10-50M", "50+"]
   const exportOptions = ["All", "America", "Asia", "Europe", "Global"]
 
-  function runLeadSearch() {
-    // mock generate 40 rows influenced by selections
+  function buildLeadItems(count: number): LeadRow[] {
+    // mock generate rows influenced by selections
     const seed = (
       leadSearch.exhibition +
       leadSearch.type +
       leadSearch.size +
       leadSearch.revenue +
-      leadSearch.exportFocus
+      leadSearch.exportFocus +
+      leadSearch.status
     ).length
     const sizes: LeadRow["size"][] = ["Startup", "SME", "Large"]
-    const items = Array.from({ length: 40 }).map((_, i) => {
+    const sources = ["Booth Request", "Newsletter", "Website", "Referral"]
+    const statuses: LeadRow["status"][] = ["new", "contacted", "closed", "approved"]
+    const generated = Array.from({ length: count }).map((_, i) => {
       const idx = (seed + i) % 1000
       const size = sizes[(i + seed) % sizes.length]
       const company = `${leadSearch.exportFocus !== "All" ? leadSearch.exportFocus + " " : ""}Company ${idx}`
@@ -320,10 +437,57 @@ export default function AdminPage() {
         phone: `+41 44 ${String(100000 + idx).slice(0, 6)}`,
         score: 50 + ((i * 7 + seed) % 51),
         size,
+        source: sources[(i + seed) % sources.length],
+        status: statuses[(i + seed) % statuses.length],
       } as LeadRow
     })
+    // Apply filters for size and status when not 'All'
+    const filtered = generated.filter((r) => {
+      const sizeOk = leadSearch.size === "All" || r.size === (leadSearch.size as LeadRow["size"])
+      const statusOk = leadSearch.status === "All" || r.status === (leadSearch.status as LeadRow["status"])
+      return sizeOk && statusOk
+    })
+    return filtered
+  }
+
+  // Initialize with 5 default results before any search
+  useEffect(() => {
+    const initial = buildLeadItems(100)
+    setLeadResults(initial)
+    setSelectedLeadIds({})
+    setRowsToShow(initial.length)
+  }, [])
+
+  function saveAllSettings() {
+    try {
+      localStorage.setItem("admin_settings", JSON.stringify(settings))
+      toast({ title: "Settings saved", description: "All settings have been updated." })
+    } catch (e) {
+      console.error(e)
+      alert("Failed to save settings")
+    }
+  }
+
+  function resetSettings() {
+    setSettings(defaultSettings)
+    try {
+      localStorage.setItem("admin_settings", JSON.stringify(defaultSettings))
+    } catch {}
+  }
+
+  function handleGuideUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const url = URL.createObjectURL(file)
+    setSettings((s) => ({ ...s, guideFileName: file.name, guideObjectUrl: url }))
+    e.currentTarget.value = ""
+  }
+
+  function runLeadSearch() {
+    const items = buildLeadItems(100)
     setLeadResults(items)
     setSelectedLeadIds({})
+    setRowsToShow(items.length)
   }
 
   function toggleSelectAll(val: boolean) {
@@ -356,35 +520,21 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-6">
+    <AdminAuthGuard>
+      <main className="mx-auto max-w-7xl px-4 py-6">
       <Tabs defaultValue="dashboard">
-        <div className="flex flex-col gap-2 mb-4 md:flex-row md:items-center md:justify-between">
-          <TabsList className="flex flex-nowrap overflow-x-auto no-scrollbar">
-            <TabsTrigger value="dashboard">{t.dashboard}</TabsTrigger>
-            <TabsTrigger value="exhibitions">{t.exhibitions}</TabsTrigger>
-            <TabsTrigger value="leads">{t.leads}</TabsTrigger>
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
-          </TabsList>
-
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-            <Button
-              asChild
-              variant="outline"
-              className="transition hover:-translate-y-0.5 hover:shadow-md bg-transparent"
-            >
-              <a href="/" className="flex items-center gap-1">
-                <ExternalLink className="h-4 w-4" /> View Site
-              </a>
-            </Button>
-            <Button
-              variant="destructive"
-              className="transition hover:-translate-y-0.5 hover:shadow-md"
-              onClick={() => (window.location.href = "/")}
-            >
-              <LogOut className="h-4 w-4 mr-1" /> Logout
-            </Button>
+        <div className="relative mb-4">
+          <div className="flex">
+            <TabsList className="w-full flex flex-nowrap justify-between overflow-x-auto no-scrollbar rounded-md bg-muted/60 bg-gray-300 px-1">
+              <TabsTrigger value="dashboard">{t.dashboard}</TabsTrigger>
+              <TabsTrigger value="exhibitions">{t.exhibitions}</TabsTrigger>
+              <TabsTrigger value="leads">{t.leads}</TabsTrigger>
+              <TabsTrigger value="analytics">Analytics</TabsTrigger>
+              <TabsTrigger value="settings">Settings</TabsTrigger>
+            </TabsList>
           </div>
+
+          {/* Actions moved to global header on admin routes */}
         </div>
 
         <TabsContent value="dashboard">
@@ -859,6 +1009,21 @@ export default function AdminPage() {
                   ))}
                 </select>
               </div>
+              {/* Status */}
+              <div>
+                <label className="text-sm text-muted-foreground">Status</label>
+                <select
+                  className="mt-1 block w-full rounded-md border bg-background px-2 py-2"
+                  value={leadSearch.status}
+                  onChange={(e) => setLeadSearch((s) => ({ ...s, status: e.target.value }))}
+                >
+                  {["All", "new", "contacted", "closed", "approved"].map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               <div className="md:col-span-5 flex items-center justify-end gap-2">
                 <Button
@@ -919,10 +1084,12 @@ export default function AdminPage() {
                   <TableHead>Phone</TableHead>
                   <TableHead>Score</TableHead>
                   <TableHead>Size</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {leadResults.map((r) => (
+                {leadResults.slice(0, rowsToShow).map((r) => (
                   <TableRow key={r.id} className="transition hover:bg-primary/5">
                     <TableCell>
                       <input
@@ -987,50 +1154,8 @@ export default function AdminPage() {
                       </span>
                     </TableCell>
                     <TableCell>{r.size}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* Existing Leads (original table) */}
-          <div className="overflow-x-auto rounded border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[200px]">Actions</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {leads.map((l) => (
-                  <TableRow key={l.id} className="transition hover:bg-primary/5">
-                    <TableCell className="flex gap-2 flex-wrap sm:flex-nowrap">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="px-2 bg-transparent transition hover:-translate-y-0.5"
-                        onClick={() => updateLeadStatus(l.id, "approved")}
-                      >
-                        <Check size={14} className="mr-1" /> Approve
-                      </Button>
-                      <Button size="sm" variant="outline" className="px-2 bg-transparent" asChild>
-                        <a href={`mailto:${l.email}`}>
-                          <Mail size={14} className="mr-1" /> Email
-                        </a>
-                      </Button>
-                    </TableCell>
-                    <TableCell className="font-medium whitespace-normal break-words">{l.name}</TableCell>
-                    <TableCell className="text-primary underline whitespace-normal break-words">
-                      <a href={`mailto:${l.email}`}>{l.email}</a>
-                    </TableCell>
-                    <TableCell className="whitespace-normal break-words">{l.company}</TableCell>
-                    <TableCell className="whitespace-normal break-words">{l.source}</TableCell>
-                    <TableCell className="capitalize">{l.status}</TableCell>
+                    <TableCell className="whitespace-normal break-words">{r.source}</TableCell>
+                    <TableCell className="capitalize">{r.status}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1277,16 +1402,294 @@ export default function AdminPage() {
           </section>
         </TabsContent>
 
-        <TabsContent value="settings">
-          <Card>
-            <CardHeader>
-              <CardTitle>Settings</CardTitle>
-            </CardHeader>
-            <CardContent className="text-muted-foreground">Settings will be available here soon.</CardContent>
-          </Card>
+        <TabsContent value="settings" className="space-y-6">
+          <section className="space-y-4">
+            <h3 className="text-lg font-semibold">System Settings & Configuration</h3>
+
+            <div className="rounded border bg-card">
+              <div className="border-b bg-muted/50 px-4 py-2 font-medium">General Configuration</div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm text-muted-foreground">Company Name</label>
+                  <Input value={settings.companyName} onChange={(e) => setSettings((s) => ({ ...s, companyName: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Website URL</label>
+                  <Input value={settings.websiteUrl} onChange={(e) => setSettings((s) => ({ ...s, websiteUrl: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Contact Email</label>
+                  <Input value={settings.contactEmail} onChange={(e) => setSettings((s) => ({ ...s, contactEmail: e.target.value }))} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-sm text-muted-foreground">Company Address</label>
+                  <Textarea value={settings.companyAddress} onChange={(e) => setSettings((s) => ({ ...s, companyAddress: e.target.value }))} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-sm text-muted-foreground">Phone Number (for Call CTA)</label>
+                  <Input value={settings.phoneCta} onChange={(e) => setSettings((s) => ({ ...s, phoneCta: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded border bg-card">
+              <div className="border-b bg-muted/50 px-4 py-2 font-medium">API & Integration Settings</div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm text-muted-foreground">OpenAI API Key</label>
+                  <Input type="password" value={settings.openaiKey} onChange={(e) => setSettings((s) => ({ ...s, openaiKey: e.target.value }))} placeholder="sk-..." />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Email Service Provider</label>
+                  <Input value={settings.emailServiceProvider} onChange={(e) => setSettings((s) => ({ ...s, emailServiceProvider: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">LinkedIn API Key</label>
+                  <Input type="password" value={settings.linkedinApiKey} onChange={(e) => setSettings((s) => ({ ...s, linkedinApiKey: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Email API Key</label>
+                  <Input type="password" value={settings.emailApiKey} onChange={(e) => setSettings((s) => ({ ...s, emailApiKey: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded border bg-card">
+              <div className="border-b bg-muted/50 px-4 py-2 font-medium">Contact Form Configuration</div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="font-medium text-sm mb-2">Required Fields</div>
+                  {(["firstName", "lastName", "email", "phone", "company"] as const).map((k) => (
+                    <label key={k} className="flex items-center gap-2 text-sm block">
+                      <input
+                        type="checkbox"
+                        checked={settings.contactRequired[k]}
+                        onChange={(e) => {
+                          const isChecked = (e.target as HTMLInputElement).checked
+                          setSettings((s) => ({
+                            ...s,
+                            contactRequired: { ...s.contactRequired, [k]: isChecked },
+                          }))
+                        }}
+                      />
+                      {k.charAt(0).toUpperCase() + k.slice(1).replace(/([A-Z])/g, " $1")}
+                    </label>
+                  ))}
+                </div>
+                <div>
+                  <div className="font-medium text-sm mb-2">Optional Fields</div>
+                  {(["industry", "country", "newsletter"] as const).map((k) => (
+                    <label key={k} className="flex items-center gap-2 text-sm block">
+                      <input
+                        type="checkbox"
+                        checked={settings.contactOptional[k]}
+                        onChange={(e) => {
+                          const isChecked = (e.target as HTMLInputElement).checked
+                          setSettings((s) => ({
+                            ...s,
+                            contactOptional: { ...s.contactOptional, [k]: isChecked },
+                          }))
+                        }}
+                      />
+                      {k.charAt(0).toUpperCase() + k.slice(1).replace(/([A-Z])/g, " $1")}
+                    </label>
+                  ))}
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-sm text-muted-foreground">Success Message</label>
+                  <Textarea value={settings.contactSuccessMessage} onChange={(e) => setSettings((s) => ({ ...s, contactSuccessMessage: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded border bg-card">
+              <div className="border-b bg-muted/50 px-4 py-2 font-medium">Meeting Booking Configuration</div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="font-medium text-sm mb-2">Available Time Slots</div>
+                  {["09:00 - 10:00","10:00 - 11:00","11:00 - 12:00","14:00 - 15:00","15:00 - 16:00","16:00 - 17:00"].map((slot) => (
+                    <label key={slot} className="flex items-center gap-2 text-sm block">
+                      <input
+                        type="checkbox"
+                        checked={settings.meetingSlots.includes(slot)}
+                        onChange={(e) => {
+                          const isChecked = (e.target as HTMLInputElement).checked
+                          setSettings((s) => ({
+                            ...s,
+                            meetingSlots: isChecked
+                              ? Array.from(new Set([...s.meetingSlots, slot]))
+                              : s.meetingSlots.filter((x) => x !== slot),
+                          }))
+                        }}
+                      />
+                      {slot}
+                    </label>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <label className="text-sm text-muted-foreground">Meeting Duration (minutes)</label>
+                    <Input type="number" value={settings.meetingDurationMins} onChange={(e) => setSettings((s) => ({ ...s, meetingDurationMins: Number(e.target.value || 0) }))} />
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted-foreground">Advance Booking Days</label>
+                    <Input type="number" value={settings.meetingAdvanceDays} onChange={(e) => setSettings((s) => ({ ...s, meetingAdvanceDays: Number(e.target.value || 0) }))} />
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted-foreground">Meeting Confirmation Message</label>
+                    <Textarea value={settings.meetingConfirmMessage} onChange={(e) => setSettings((s) => ({ ...s, meetingConfirmMessage: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded border bg-card">
+              <div className="border-b bg-muted/50 px-4 py-2 font-medium">Document Management</div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground">Z3 Exhibition Guide</label>
+                  <input type="file" accept="application/pdf" onChange={handleGuideUpload} />
+                  <div className="text-xs text-muted-foreground">Upload the latest Z3 Exhibition Guide (PDF recommended)</div>
+                  <div className="mt-2 text-sm flex items-center gap-2">
+                    <span className="text-muted-foreground">Current Guide</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">
+                      {settings.guideFileName || settings.guideFilePath?.split("/").pop()}
+                    </span>
+                    <Button asChild variant="outline" className="h-7 px-2">
+                      <a href={settings.guideObjectUrl || settings.guideFilePath} download>
+                        Download
+                      </a>
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      className="h-7 px-2"
+                      onClick={() => setSettings((s) => ({ ...s, guideFileName: undefined, guideObjectUrl: undefined }))}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground">Excel Import Template</label>
+                  <div className="text-xs text-muted-foreground">Download the Excel template for bulk exhibition import</div>
+                  {/* <Input value={settings.templateCsvPath} onChange={(e) => setSettings((s) => ({ ...s, templateCsvPath: e.target.value }))} placeholder="/COPE_Exhibition_Import_Template.csv" /> */}
+                  {settings.templateCsvPath && (
+                    <div>
+                      <Button asChild className="h-8">
+                        <a href={settings.templateCsvPath} download>
+                          Download Template
+                        </a>
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Maximum File Size (MB)</label>
+                  <Input type="number" value={settings.excelMaxFileMb} onChange={(e) => setSettings((s) => ({ ...s, excelMaxFileMb: Number(e.target.value || 0) }))} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded border bg-card">
+              <div className="border-b bg-muted/50 px-4 py-2 font-medium">Live Chat Configuration</div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={settings.liveChatEnabled}
+                    onChange={(e) => {
+                      const isChecked = (e.target as HTMLInputElement).checked
+                      setSettings((s) => ({ ...s, liveChatEnabled: isChecked }))
+                    }}
+                  />
+                  Enable Live Chat
+                </label>
+                <div>
+                  <label className="text-sm text-muted-foreground">Chat Widget Position</label>
+                  <select className="mt-1 block w-full rounded-md border bg-background px-2 py-2" value={settings.chatWidgetPosition} onChange={(e) => setSettings((s) => ({ ...s, chatWidgetPosition: e.target.value as Settings["chatWidgetPosition"] }))}>
+                    <option>Bottom Right</option>
+                    <option>Bottom Left</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-sm text-muted-foreground">Welcome Message</label>
+                  <Textarea value={settings.chatWelcomeMessage} onChange={(e) => setSettings((s) => ({ ...s, chatWelcomeMessage: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded border bg-card">
+              <div className="border-b bg-muted/50 px-4 py-2 font-medium">Admin Security</div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <div className="font-medium">Change Admin Password</div>
+                  <div>
+                    <label className="text-sm text-muted-foreground">Current Password</label>
+                    <Input type="password" placeholder="Current Password" id="admin-current-password" />
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted-foreground">New Password</label>
+                    <Input type="password" placeholder="New Password" id="admin-new-password" />
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted-foreground">Confirm New Password</label>
+                    <Input type="password" placeholder="Confirm New Password" id="admin-confirm-password" />
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      const curr = (document.getElementById("admin-current-password") as HTMLInputElement | null)?.value || ""
+                      const npw = (document.getElementById("admin-new-password") as HTMLInputElement | null)?.value || ""
+                      const cpw = (document.getElementById("admin-confirm-password") as HTMLInputElement | null)?.value || ""
+                      if (!curr || !npw || !cpw) {
+                        toast({ title: "Missing fields", description: "Please fill all password fields." })
+                        return
+                      }
+                      if (npw.length < 8) {
+                        toast({ title: "Weak password", description: "Password must be at least 8 characters." })
+                        return
+                      }
+                      if (npw !== cpw) {
+                        toast({ title: "Passwords do not match", description: "Confirm password must match." })
+                        return
+                      }
+                      toast({ title: "Password updated", description: "Your admin password has been changed." })
+                    }}
+                  >
+                    Change Password
+                  </Button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm text-muted-foreground">Session Timeout (minutes)</label>
+                    <Input type="number" value={settings.sessionTimeoutMins} onChange={(e) => setSettings((s) => ({ ...s, sessionTimeoutMins: Number(e.target.value || 0) }))} />
+                  </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={settings.twoFactorEnabled}
+                    onChange={(e) => {
+                      const isChecked = (e.target as HTMLInputElement).checked
+                      setSettings((s) => ({ ...s, twoFactorEnabled: isChecked }))
+                    }}
+                  />
+                    Enable Two-Factor Authentication
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <Button className="cursor-pointer" variant="secondary" onClick={resetSettings}>Reset to Defaults</Button>
+              <Button className="cursor-pointer" onClick={saveAllSettings}>Save All Settings</Button>
+            </div>
+          </section>
         </TabsContent>
       </Tabs>
-    </main>
+      </main>
+    </AdminAuthGuard>
   )
 }
 
