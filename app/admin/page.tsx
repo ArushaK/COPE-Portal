@@ -4,6 +4,8 @@ import { events as publicEvents } from "@/data/events"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
@@ -42,6 +44,7 @@ import { useAppSelector } from "@/lib/store"
 import { getT } from "@/lib/i18n"
 import { AdminAuthGuard } from "@/components/admin-auth-guard"
 import { useToast } from "@/hooks/use-toast"
+import { type ExhibitionDetails, type ExhibitionCore } from "@/components/admin/exhibition-wizard"
 
 type Exhibition = {
   id: string
@@ -152,8 +155,39 @@ const initialLeads: Lead[] = [
 ]
 
 export default function AdminPage() {
+  const search = useSearchParams()
+  const router = useRouter()
   const [exhibitions, setExhibitions] = useState<Exhibition[]>(initialExhibitions)
   const [leads, setLeads] = useState<Lead[]>(initialLeads)
+  const initialTab = (search?.get("tab") as string) || "dashboard"
+  const [activeTab, setActiveTab] = useState<string>(initialTab)
+  const [hydrated, setHydrated] = useState(false)
+  const [detailsById, setDetailsById] = useState<Record<string, ExhibitionDetails>>({})
+  // Load persisted data
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      const raw = localStorage.getItem("admin_custom_exhibitions")
+      const rawDetails = localStorage.getItem("admin_exhibition_details")
+      const custom = raw ? (JSON.parse(raw) as Exhibition[]) : []
+      if (custom && Array.isArray(custom)) setExhibitions([...custom, ...initialExhibitions])
+      if (rawDetails) {
+        const parsed = JSON.parse(rawDetails) as Record<string, ExhibitionDetails>
+        if (parsed && typeof parsed === "object") setDetailsById(parsed)
+      }
+      setHydrated(true)
+    } catch {}
+  }, [])
+
+  // Persist changes
+  useEffect(() => {
+    if (!hydrated) return
+    try {
+      const customOnly = exhibitions.filter((e) => e.id.startsWith("ex-"))
+      localStorage.setItem("admin_custom_exhibitions", JSON.stringify(customOnly))
+      localStorage.setItem("admin_exhibition_details", JSON.stringify(detailsById))
+    } catch {}
+  }, [exhibitions, detailsById, hydrated])
   const lang = useAppSelector((s) => s.ui.language)
   const t = getT(lang)
   const { toast } = useToast()
@@ -169,25 +203,15 @@ export default function AdminPage() {
   }
 
   const [addOpen, setAddOpen] = useState(false)
-  const [addForm, setAddForm] = useState<{
-    name: string
-    industry: string
-    city: string
-    country: string
-    startDate: string
-    endDate: string
-    description: string
-    status: Exhibition["status"]
-  }>({
+  const emptyCore: ExhibitionCore = {
     name: "",
     industry: "",
     city: "",
     country: "",
     startDate: "",
     endDate: "",
-    description: "",
     status: "draft",
-  })
+  }
 
   const [editOpen, setEditOpen] = useState(false)
   const [editForm, setEditForm] = useState<Exhibition | null>(null)
@@ -288,28 +312,7 @@ export default function AdminPage() {
     URL.revokeObjectURL(url)
   }
 
-  function addExhibition(data: {
-    name: string
-    industry: string
-    city: string
-    country: string
-    startDate: string
-    endDate: string
-    status: Exhibition["status"]
-    description?: string
-  }) {
-    const next: Exhibition = {
-      id: `ex-${Date.now()}`,
-      name: data.name,
-      industry: data.industry,
-      city: data.city,
-      country: data.country,
-      startDate: data.startDate,
-      endDate: data.endDate,
-      status: data.status,
-    }
-    setExhibitions((prev) => [next, ...prev])
-  }
+  // creation now handled in dedicated page via localStorage
 
   // Parse many date formats safely: ISO, DD-MM-YYYY, DD/MM/YYYY, and Excel serial
   function parseDateSafe(value: any): Date | null {
@@ -522,7 +525,7 @@ export default function AdminPage() {
   return (
     <AdminAuthGuard>
       <main className="mx-auto max-w-7xl px-4 py-6">
-      <Tabs defaultValue="dashboard">
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); try { const url = new URL(window.location.href); url.searchParams.set("tab", v); router.replace(url.pathname + "?" + url.searchParams.toString()); } catch {} }}>
         <div className="relative mb-4">
           <div className="flex">
             <TabsList className="w-full flex flex-nowrap justify-between overflow-x-auto no-scrollbar rounded-md bg-muted/60 bg-gray-300 px-1">
@@ -619,108 +622,12 @@ export default function AdminPage() {
               <FileDown size={16} /> Import
             </Button>
 
-            <Dialog open={addOpen} onOpenChange={setAddOpen}>
-              <DialogTrigger asChild>
-                <Button className="flex items-center gap-2 transition hover:-translate-y-0.5 hover:shadow-md">
-                  <Plus size={16} />
-                  {t.addExhibition}
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>{t.addExhibition}</DialogTitle>
-                  <DialogDescription>Fill the details to create a new exhibition.</DialogDescription>
-                </DialogHeader>
-                <form
-                  className="grid grid-cols-1 md:grid-cols-2 gap-3"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    addExhibition(addForm)
-                    setAddForm({
-                      name: "",
-                      industry: "",
-                      city: "",
-                      country: "",
-                      startDate: "",
-                      endDate: "",
-                      description: "",
-                      status: "draft",
-                    })
-                    setAddOpen(false)
-                  }}
-                >
-                  <Input
-                    name="name"
-                    placeholder="Name"
-                    required
-                    className="md:col-span-2"
-                    value={addForm.name}
-                    onChange={(e) => setAddForm((s) => ({ ...s, name: e.target.value }))}
-                  />
-                  <Input
-                    name="industry"
-                    placeholder="Industry"
-                    required
-                    value={addForm.industry}
-                    onChange={(e) => setAddForm((s) => ({ ...s, industry: e.target.value }))}
-                  />
-                  <Input
-                    name="city"
-                    placeholder="City"
-                    required
-                    value={addForm.city}
-                    onChange={(e) => setAddForm((s) => ({ ...s, city: e.target.value }))}
-                  />
-                  <Input
-                    name="country"
-                    placeholder="Country"
-                    required
-                    value={addForm.country}
-                    onChange={(e) => setAddForm((s) => ({ ...s, country: e.target.value }))}
-                  />
-                  <Input
-                    type="date"
-                    name="startDate"
-                    placeholder="Start Date"
-                    required
-                    value={addForm.startDate}
-                    onChange={(e) => setAddForm((s) => ({ ...s, startDate: e.target.value }))}
-                  />
-                  <Input
-                    type="date"
-                    name="endDate"
-                    placeholder="End Date"
-                    required
-                    value={addForm.endDate}
-                    onChange={(e) => setAddForm((s) => ({ ...s, endDate: e.target.value }))}
-                  />
-                  <Textarea
-                    name="description"
-                    placeholder="Description"
-                    className="md:col-span-2"
-                    value={addForm.description}
-                    onChange={(e) => setAddForm((s) => ({ ...s, description: e.target.value }))}
-                  />
-                  <Select
-                    value={addForm.status}
-                    onValueChange={(v) => setAddForm((s) => ({ ...s, status: v as Exhibition["status"] }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="published">Published</SelectItem>
-                      <SelectItem value="draft">Draft</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="md:col-span-2 flex justify-end gap-2">
-                    <Button type="submit" className="transition hover:-translate-y-0.5 hover:shadow-md">
-                      Save
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
+            <Button asChild className="flex items-center gap-2 transition hover:-translate-y-0.5 hover:shadow-md">
+              <Link href="/admin/exhibitions/new">
+                <Plus size={16} />
+                {t.addExhibition}
+              </Link>
+            </Button>
           </div>
 
           <div className="overflow-x-auto rounded border">
@@ -739,16 +646,10 @@ export default function AdminPage() {
                 {exhibitions.map((e) => (
                   <TableRow key={e.id} className="hover:bg-muted/20 transition hover:-translate-y-0.5 hover:shadow-md">
                     <TableCell className="flex gap-2 flex-wrap sm:flex-nowrap">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="px-2 bg-transparent transition hover:-translate-y-0.5"
-                        onClick={() => {
-                          setEditForm(e)
-                          setEditOpen(true)
-                        }}
-                      >
-                        <Pencil size={14} />
+                      <Button size="sm" variant="outline" className="px-2 bg-transparent transition hover:-translate-y-0.5" asChild>
+                        <Link href={`/admin/exhibitions/${e.id}/edit`} aria-label="Edit exhibition">
+                          <Pencil size={14} />
+                        </Link>
                       </Button>
                       <Button
                         size="sm"
@@ -797,87 +698,7 @@ export default function AdminPage() {
             </Table>
           </div>
 
-          <Dialog open={editOpen} onOpenChange={setEditOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit Exhibition</DialogTitle>
-                <DialogDescription>Update the details for this exhibition.</DialogDescription>
-              </DialogHeader>
-              {editForm && (
-                <form
-                  className="grid grid-cols-1 md:grid-cols-2 gap-3"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    setExhibitions((prev) => prev.map((x) => (x.id === editForm.id ? { ...x, ...editForm } : x)))
-                    setEditOpen(false)
-                  }}
-                >
-                  <Input
-                    name="name"
-                    placeholder="Name"
-                    required
-                    className="md:col-span-2"
-                    value={editForm.name}
-                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                  />
-                  <Input
-                    name="industry"
-                    placeholder="Industry"
-                    required
-                    value={editForm.industry}
-                    onChange={(e) => setEditForm({ ...editForm, industry: e.target.value })}
-                  />
-                  <Input
-                    name="city"
-                    placeholder="City"
-                    required
-                    value={editForm.city}
-                    onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
-                  />
-                  <Input
-                    name="country"
-                    placeholder="Country"
-                    required
-                    value={editForm.country}
-                    onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
-                  />
-                  <Input
-                    type="date"
-                    name="startDate"
-                    placeholder="Start Date"
-                    required
-                    value={editForm.startDate}
-                    onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })}
-                  />
-                  <Input
-                    type="date"
-                    name="endDate"
-                    placeholder="End Date"
-                    required
-                    value={editForm.endDate}
-                    onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })}
-                  />
-                  <Select
-                    value={editForm.status}
-                    onValueChange={(v) => setEditForm({ ...editForm, status: v as Exhibition["status"] })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="published">Published</SelectItem>
-                      <SelectItem value="draft">Draft</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="md:col-span-2 flex justify-end gap-2">
-                    <Button type="submit" className="transition hover:-translate-y-0.5 hover:shadow-md">
-                      Save changes
-                    </Button>
-                  </div>
-                </form>
-              )}
-            </DialogContent>
-          </Dialog>
+          {/* Edit handled on dedicated route */}
 
           <Dialog open={viewOpen} onOpenChange={setViewOpen}>
             <DialogContent>
