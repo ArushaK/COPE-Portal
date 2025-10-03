@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
+import { convertFromUSD, formatCurrency, type CurrencyCode } from "@/lib/utils"
 
 type Item = { id: string; label: string; unitPrice: number }
 
@@ -92,6 +93,7 @@ export function BoothTab({ eventId }: { eventId: string }) {
   const [contactNumber, setContactNumber] = useState("")
   const [address, setAddress] = useState("")
   const [counts, setCounts] = useState<Record<string, number>>({})
+  const [currency, setCurrency] = useState<CurrencyCode>("USD")
 
   const stdPrice = 600 // for 9 sq.m
   const customPerSqm = 70
@@ -160,16 +162,28 @@ export function BoothTab({ eventId }: { eventId: string }) {
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       <Card className="md:col-span-2">
         <CardContent className="p-4 space-y-4">
+          <div className="flex items-center justify-end gap-2">
+            <label className="text-sm text-muted-foreground">Currency</label>
+            <select
+              className="rounded-md border bg-background px-2 py-1 text-sm"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+            >
+              {(["USD","EUR","GBP","CHF","AED","INR","CAD","AUD","CNY"] as CurrencyCode[]).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <h4 className="font-semibold">Booth Package</h4>
             <div className="mt-2 grid gap-2">
               <Label className="flex items-center gap-2">
                 <Checkbox checked={packageType === "std"} onCheckedChange={() => setPackageType("std")} />
-                Standard Booth (9 sq.m.) — ${stdPrice}
+                Standard Booth (9 sq.m.) — {formatCurrency(convertFromUSD(stdPrice, currency), currency)}
               </Label>
               <Label className="flex items-center gap-2">
                 <Checkbox checked={packageType === "custom"} onCheckedChange={() => setPackageType("custom")} />
-                Custom-built Participation (per sq.m.) — ${customPerSqm}/sq.m
+                Custom-built Participation (per sq.m.) — {formatCurrency(convertFromUSD(customPerSqm, currency), currency)}/sq.m
               </Label>
               {packageType === "custom" && (
                 <div className="flex items-center gap-2">
@@ -198,7 +212,7 @@ export function BoothTab({ eventId }: { eventId: string }) {
                       <div key={a.id} className="border rounded-md p-3 bg-card flex items-center justify-between">
                         <div>
                           <div className="font-medium">{a.label}</div>
-                          <div className="text-xs text-muted-foreground">${a.unitPrice} each</div>
+                          <div className="text-xs text-muted-foreground">{formatCurrency(convertFromUSD(a.unitPrice, currency), currency)} each</div>
                         </div>
                         {a.id === "wifi" ? (
                           <div className="flex items-center gap-2">
@@ -254,7 +268,7 @@ export function BoothTab({ eventId }: { eventId: string }) {
               <ul className="list-disc pl-5">
                 {selected.map((s) => (
                   <li key={s.id}>
-                    {s.label} × {s.qty} — ${s.qty * s.unitPrice}
+                    {s.label} × {s.qty} — {formatCurrency(convertFromUSD(s.qty * s.unitPrice, currency), currency)}
                   </li>
                 ))}
               </ul>
@@ -262,7 +276,7 @@ export function BoothTab({ eventId }: { eventId: string }) {
               <div className="text-muted-foreground text-sm">No amenities selected.</div>
             )}
           </div>
-          <div className="font-semibold">Total: ${total}</div>
+          <div className="font-semibold">Total: {formatCurrency(convertFromUSD(total, currency), currency)}</div>
           <div className="pt-2 space-y-2">
             <div>
               <label className="text-sm">Company Name</label>

@@ -5,7 +5,7 @@ import { getFeaturedEvents, events } from "@/data/events"
 import { EventCard } from "@/components/event-card"
 import { NewsletterForm } from "@/components/newsletter-form"
 import { ActionButtonsSection } from "@/components/action-buttons-section"
-import { countryToFlag, cityToIcon } from "@/lib/utils"
+import { countryToFlag, countryToFlagPath, cityToIcon } from "@/lib/utils"
 import { readdirSync } from "fs"
 import { join } from "path"
 import ChatWidget from "@/components/chat-widget"
@@ -91,17 +91,24 @@ export default function HomePage() {
 
       <section className="mx-auto max-w-7xl px-4 py-8">
         <h3 className="text-xl font-semibold mb-3">Browse Events by Country</h3>
-        <div className="flex flex-wrap gap-2">
-          {countries.map((c) => (
-            <Link
-              key={c}
-              href={`/browse?country=${encodeURIComponent(c)}`}
-              className="rounded border bg-card px-3 py-2 hover:bg-accent flex items-center gap-2"
-            >
-              <span className="text-base leading-none">{countryToFlag(c)}</span>
-              <span>{c}</span>
-            </Link>
-          ))}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          {countries.map((c) => {
+            const count = events.filter((e) => e.country === c).length
+            const flagSrc = countryToFlagPath(c)
+            return (
+              <Link
+                key={c}
+                href={`/browse?country=${encodeURIComponent(c)}`}
+                className="rounded-md border bg-card p-4 hover:bg-accent flex items-center gap-3 shadow-sm"
+              >
+                <img src={flagSrc} alt={`${c} flag`} className="h-6 w-8 object-cover rounded-sm ring-1 ring-border" />
+                <div>
+                  <div className="font-medium">{c}</div>
+                  <div className="text-xs text-muted-foreground">{(count / 1000).toFixed(1)}k Events</div>
+                </div>
+              </Link>
+            )
+          })}
         </div>
       </section>
 

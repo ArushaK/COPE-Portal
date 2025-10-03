@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { Pencil, Trash2 } from "lucide-react"
+import { convertFromUSD, formatCurrency, type CurrencyCode } from "@/lib/utils"
 
 export type ExhibitionCore = {
   id?: string
@@ -55,6 +56,7 @@ export type ExhibitionDetails = {
   }
   exhibitors: ExhibitorForm[]
   speakers: SpeakerForm[]
+  amenities: string[]
 }
 
 export function ExhibitionWizard({
@@ -72,6 +74,7 @@ export function ExhibitionWizard({
 }) {
   const { toast } = useToast()
   const [core, setCore] = useState<ExhibitionCore>(initialCore)
+  const [currency, setCurrency] = useState<CurrencyCode>("USD")
   const [details, setDetails] = useState<ExhibitionDetails>(
     initialDetails || {
       about: {
@@ -85,6 +88,7 @@ export function ExhibitionWizard({
       },
       exhibitors: [],
       speakers: [],
+      amenities: [],
     },
   )
   useEffect(() => setCore(initialCore), [JSON.stringify(initialCore)])
@@ -234,6 +238,7 @@ export function ExhibitionWizard({
           <TabsTrigger value="about">About</TabsTrigger>
           <TabsTrigger value="exhibitors">Exhibitors</TabsTrigger>
           <TabsTrigger value="speakers">Speakers</TabsTrigger>
+          <TabsTrigger value="amenities">Amenities</TabsTrigger>
         </TabsList>
 
         <TabsContent value="about" className="space-y-3">
@@ -312,7 +317,7 @@ export function ExhibitionWizard({
         <TabsContent value="exhibitors" className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">List of exhibitors you have added.</div>
-            <Button onClick={addExhibitor} size="sm">Add Exhibitor</Button>
+            <Button className="cursor-pointer" onClick={addExhibitor} size="sm">Add Exhibitor</Button>
           </div>
           <Dialog open={exOpen} onOpenChange={(v) => {
             if (!v) { setExEditIdx(null) }
@@ -353,8 +358,8 @@ export function ExhibitionWizard({
                   }} />
                 </div>
                 <div className="flex items-center justify-end gap-2 pt-2">
-                  <Button variant="secondary" onClick={() => setExOpen(false)}>Cancel</Button>
-                  <Button onClick={submitExhibitor}>Add</Button>
+                  <Button className="cursor-pointer" variant="secondary" onClick={() => setExOpen(false)}>Cancel</Button>
+                  <Button className="cursor-pointer" onClick={submitExhibitor}>Add</Button>
                 </div>
               </div>
             </DialogContent>
@@ -380,15 +385,15 @@ export function ExhibitionWizard({
                     <TableRow key={i} className="cursor-pointer" onClick={() => { setExDraft(ex); setExEditIdx(i); setExOpen(true) }}>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Button size="sm" variant="outline" title="Edit" onClick={() => {
+                          <Button className="cursor-pointer" size="sm" variant="outline" title="Edit" onClick={() => {
                             setExDraft(ex)
                             setExEditIdx(i)
                             setExOpen(true)
                           }}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="destructive" size="sm" title="Delete" onClick={() => setDetails((d) => ({ ...d, exhibitors: d.exhibitors.filter((_, idx) => idx !== i) }))}>
-                            <Trash2 className="h-4 w-4" />
+                          <Button className="cursor-pointer" variant="destructive" size="sm" title="Delete" onClick={() => setDetails((d) => ({ ...d, exhibitors: d.exhibitors.filter((_, idx) => idx !== i) }))}>
+                            <Trash2 className="h-4 w-4 " />
                           </Button>
                         </div>
                       </TableCell>
@@ -416,7 +421,7 @@ export function ExhibitionWizard({
         <TabsContent value="speakers" className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">List of speakers you have added.</div>
-            <Button onClick={addSpeaker} size="sm">Add Speaker</Button>
+            <Button className="cursor-pointer" onClick={addSpeaker} size="sm">Add Speaker</Button>
           </div>
           <Dialog open={spOpen} onOpenChange={(v) => { if (!v) { setSpEditIdx(null) } setSpOpen(v) }}>
             <DialogContent className="max-w-lg">
@@ -461,8 +466,8 @@ export function ExhibitionWizard({
                   }} />
                 </div>
                 <div className="flex items-center justify-end gap-2 pt-2">
-                  <Button variant="secondary" onClick={() => setSpOpen(false)}>Cancel</Button>
-                  <Button onClick={submitSpeaker}>Add</Button>
+                  <Button className="cursor-pointer" variant="secondary" onClick={() => setSpOpen(false)}>Cancel</Button>
+                  <Button className="cursor-pointer" onClick={submitSpeaker}>Add</Button>
                 </div>
               </div>
             </DialogContent>
@@ -488,14 +493,14 @@ export function ExhibitionWizard({
                     <TableRow key={i} className="cursor-pointer" onClick={() => { setSpDraft(sp); setSpEditIdx(i); setSpOpen(true) }}>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Button size="sm" variant="outline" title="Edit" onClick={() => {
+                          <Button className="cursor-pointer" size="sm" variant="outline" title="Edit" onClick={() => {
                             setSpDraft(sp)
                             setSpEditIdx(i)
                             setSpOpen(true)
                           }}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="destructive" size="sm" title="Delete" onClick={() => setDetails((d) => ({ ...d, speakers: d.speakers.filter((_, idx) => idx !== i) }))}>
+                          <Button className="cursor-pointer" variant="destructive" size="sm" title="Delete" onClick={() => setDetails((d) => ({ ...d, speakers: d.speakers.filter((_, idx) => idx !== i) }))}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -520,16 +525,218 @@ export function ExhibitionWizard({
 
           
         </TabsContent>
+
+        <TabsContent value="amenities" className="space-y-3">
+          <Card>
+            <CardHeader>
+              <CardTitle>Select Amenities</CardTitle>
+              <p className="text-sm text-muted-foreground">Choose which amenities will be available for this exhibition.</p>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-end gap-2 mb-3">
+                <label className="text-sm text-muted-foreground">Currency</label>
+                <select
+                  className="rounded-md border bg-background px-2 py-1 text-sm"
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+                >
+                  {(["USD","EUR","GBP","CHF","AED","INR","CAD","AUD","CNY"] as CurrencyCode[]).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <AmenitiesSelector 
+                selectedAmenities={details.amenities}
+                onAmenitiesChange={(amenities) => setDetails(d => ({ ...d, amenities }))}
+                currency={currency}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       <div className="flex items-center justify-end gap-2">
-        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
-        {tab !== "speakers" ? (
-          <Button onClick={() => setTab(tab === "about" ? "exhibitors" : "speakers")}>Next</Button>
+        <Button className="cursor-pointer" variant="secondary" onClick={onCancel}>Cancel</Button>
+        {tab !== "amenities" ? (
+          <Button className="cursor-pointer" onClick={() => setTab(tab === "about" ? "exhibitors" : tab === "exhibitors" ? "speakers" : "amenities")}>Next</Button>
         ) : (
-          <Button onClick={save}>{mode === "add" ? "Create" : "Save"}</Button>
+          <Button className="cursor-pointer" onClick={save}>{mode === "add" ? "Create" : "Save"}</Button>
         )}
       </div>
+    </div>
+  )
+}
+
+// Amenities data structure from the user portal
+const amenityGroups: { name: string; items: { id: string; label: string; unitPrice: number }[] }[] = [
+  {
+    name: "Connectivity",
+    items: [{ id: "wifi", label: "Wi‑Fi / High-speed Internet – reliable connectivity", unitPrice: 50 }],
+  },
+  {
+    name: "Collaboration",
+    items: [
+      { id: "whiteboard", label: "Whiteboard / Flipchart with markers – for brainstorming and notes", unitPrice: 25 },
+      { id: "stationery", label: "Stationery – pens, notepads, sticky notes", unitPrice: 20 },
+    ],
+  },
+  {
+    name: "A/V & Presentation",
+    items: [
+      {
+        id: "sound",
+        label: "Microphone / Speakers / Sound System – for presentations or larger groups",
+        unitPrice: 80,
+      },
+      { id: "led-screen", label: "LED Screen", unitPrice: 180 },
+      { id: "lighting", label: "Lighting Control – adjustable lighting for presentations", unitPrice: 30 },
+      {
+        id: "video-conf",
+        label: "Video Conferencing Setup (Camera + Mic) – if remote participants are involved",
+        unitPrice: 120,
+      },
+    ],
+  },
+  {
+    name: "Comfort & Utilities",
+    items: [
+      { id: "aircon", label: "Air Conditioning / Climate Control – comfort for attendees", unitPrice: 90 },
+      { id: "power-socket", label: "Power Socket", unitPrice: 15 },
+      { id: "water", label: "Drinking Water Dispenser – hydration option apart from coffee", unitPrice: 35 },
+    ],
+  },
+  {
+    name: "Refreshments",
+    items: [
+      { id: "coffee-machine", label: "Coffee Machine", unitPrice: 120 },
+      { id: "snacks", label: "Snacks / Pantry Access – light refreshments", unitPrice: 40 },
+    ],
+  },
+  {
+    name: "Furniture & Storage",
+    items: [
+      { id: "chair", label: "Chair", unitPrice: 10 },
+      { id: "round-table", label: "Round Table", unitPrice: 40 },
+      { id: "storage", label: "Storage Cabinets / Lockers – for temporary belongings", unitPrice: 45 },
+    ],
+  },
+  {
+    name: "Way finding & IDs",
+    items: [
+      { id: "name-tags", label: "Name Tags / Badges – for identification", unitPrice: 5 },
+      { id: "signage", label: "Directional Signage – wayfinding assistance", unitPrice: 30 },
+    ],
+  },
+]
+
+function AmenitiesSelector({ 
+  selectedAmenities, 
+  onAmenitiesChange,
+  currency = "USD",
+}: { 
+  selectedAmenities: string[]
+  onAmenitiesChange: (amenities: string[]) => void,
+  currency?: CurrencyCode,
+}) {
+  const [customAmenities, setCustomAmenities] = useState<{ id: string; label: string; unitPrice: number; category: string }[]>([])
+
+  useEffect(() => {
+    try {
+      const settingsRaw = localStorage.getItem("admin_settings")
+      if (settingsRaw) {
+        const settings = JSON.parse(settingsRaw)
+        setCustomAmenities(settings.customAmenities || [])
+      }
+    } catch {}
+  }, [])
+
+  const toggleAmenity = (amenityId: string) => {
+    if (selectedAmenities.includes(amenityId)) {
+      onAmenitiesChange(selectedAmenities.filter(id => id !== amenityId))
+    } else {
+      onAmenitiesChange([...selectedAmenities, amenityId])
+    }
+  }
+
+  // Group custom amenities by category
+  const customAmenityGroups = customAmenities.reduce((groups, amenity) => {
+    const category = amenity.category
+    if (!groups[category]) {
+      groups[category] = []
+    }
+    groups[category].push(amenity)
+    return groups
+  }, {} as Record<string, typeof customAmenities>)
+
+  return (
+    <div className="space-y-4">
+      {amenityGroups.map((group) => (
+        <div key={group.name} className="space-y-2">
+          <div className="text-sm font-medium text-primary">{group.name}</div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {group.items.map((amenity) => (
+              <div 
+                key={amenity.id} 
+                className={`border rounded-md p-3 bg-card flex items-center justify-between cursor-pointer transition-colors ${
+                  selectedAmenities.includes(amenity.id) 
+                    ? 'border-primary bg-primary/5' 
+                    : 'hover:bg-muted/50'
+                }`}
+                onClick={() => toggleAmenity(amenity.id)}
+              >
+                <div className="flex-1">
+                  <div className="font-medium text-sm">{amenity.label}</div>
+                  <div className="text-xs text-muted-foreground">{formatCurrency(convertFromUSD(amenity.unitPrice, currency), currency)} each</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedAmenities.includes(amenity.id)}
+                    onChange={() => toggleAmenity(amenity.id)}
+                    className="h-4 w-4"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      
+      {Object.keys(customAmenityGroups).length > 0 && (
+        <>
+          {Object.entries(customAmenityGroups).map(([category, amenities]) => (
+            <div key={category} className="space-y-2">
+              <div className="text-sm font-medium text-primary">{category}</div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {amenities.map((amenity) => (
+                  <div 
+                    key={amenity.id} 
+                    className={`border rounded-md p-3 bg-card flex items-center justify-between cursor-pointer transition-colors ${
+                      selectedAmenities.includes(amenity.id) 
+                        ? 'border-primary bg-primary/5' 
+                        : 'hover:bg-muted/50'
+                    }`}
+                    onClick={() => toggleAmenity(amenity.id)}
+                  >
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">{amenity.label}</div>
+                      <div className="text-xs text-muted-foreground">{formatCurrency(convertFromUSD(amenity.unitPrice, currency), currency)} each</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedAmenities.includes(amenity.id)}
+                        onChange={() => toggleAmenity(amenity.id)}
+                        className="h-4 w-4"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   )
 }

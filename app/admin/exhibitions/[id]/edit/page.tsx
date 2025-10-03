@@ -59,6 +59,7 @@ export default function EditExhibitionPage() {
         },
         exhibitors: [],
         speakers: [],
+        amenities: [],
       }
       setDetails(d)
     } catch {}

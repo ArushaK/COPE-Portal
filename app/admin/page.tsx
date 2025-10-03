@@ -45,6 +45,7 @@ import { getT } from "@/lib/i18n"
 import { AdminAuthGuard } from "@/components/admin-auth-guard"
 import { useToast } from "@/hooks/use-toast"
 import { type ExhibitionDetails, type ExhibitionCore } from "@/components/admin/exhibition-wizard"
+import { convertFromUSD, formatCurrency, type CurrencyCode } from "@/lib/utils"
 
 type Exhibition = {
   id: string
@@ -114,7 +115,64 @@ type Settings = {
   guideFilePath?: string
   templateCsvPath?: string
   guideObjectUrl?: string
+  customAmenities: { id: string; label: string; unitPrice: number; category: string }[]
+  hiddenAmenityIds: string[]
+  amenityOverrides: Record<string, { label: string; unitPrice: number; category: string }>
 }
+
+// Base amenity groups used across the portal (default list shown to users)
+const baseAmenityGroups: { name: string; items: { id: string; label: string; unitPrice: number }[] }[] = [
+  {
+    name: "Connectivity",
+    items: [{ id: "wifi", label: "Wi‑Fi / High-speed Internet – reliable connectivity", unitPrice: 50 }],
+  },
+  {
+    name: "Collaboration",
+    items: [
+      { id: "whiteboard", label: "Whiteboard / Flipchart with markers – for brainstorming and notes", unitPrice: 25 },
+      { id: "stationery", label: "Stationery – pens, notepads, sticky notes", unitPrice: 20 },
+    ],
+  },
+  {
+    name: "A/V & Presentation",
+    items: [
+      { id: "sound", label: "Microphone / Speakers / Sound System – for presentations or larger groups", unitPrice: 80 },
+      { id: "led-screen", label: "LED Screen", unitPrice: 180 },
+      { id: "lighting", label: "Lighting Control – adjustable lighting for presentations", unitPrice: 30 },
+      { id: "video-conf", label: "Video Conferencing Setup (Camera + Mic) – if remote participants are involved", unitPrice: 120 },
+    ],
+  },
+  {
+    name: "Comfort & Utilities",
+    items: [
+      { id: "aircon", label: "Air Conditioning / Climate Control – comfort for attendees", unitPrice: 90 },
+      { id: "power-socket", label: "Power Socket", unitPrice: 15 },
+      { id: "water", label: "Drinking Water Dispenser – hydration option apart from coffee", unitPrice: 35 },
+    ],
+  },
+  {
+    name: "Refreshments",
+    items: [
+      { id: "coffee-machine", label: "Coffee Machine", unitPrice: 120 },
+      { id: "snacks", label: "Snacks / Pantry Access – light refreshments", unitPrice: 40 },
+    ],
+  },
+  {
+    name: "Furniture & Storage",
+    items: [
+      { id: "chair", label: "Chair", unitPrice: 10 },
+      { id: "round-table", label: "Round Table", unitPrice: 40 },
+      { id: "storage", label: "Storage Cabinets / Lockers – for temporary belongings", unitPrice: 45 },
+    ],
+  },
+  {
+    name: "Way finding & IDs",
+    items: [
+      { id: "name-tags", label: "Name Tags / Badges – for identification", unitPrice: 5 },
+      { id: "signage", label: "Directional Signage – wayfinding assistance", unitPrice: 30 },
+    ],
+  },
+]
 
 const initialExhibitions: Exhibition[] = publicEvents.map((e) => ({
   id: e.id,
@@ -230,6 +288,7 @@ export default function AdminPage() {
   const [leadResults, setLeadResults] = useState<LeadRow[]>([])
   const [selectedLeadIds, setSelectedLeadIds] = useState<Record<string, boolean>>({})
   const [rowsToShow, setRowsToShow] = useState<number>(5)
+  const [settingsCurrency, setSettingsCurrency] = useState<CurrencyCode>("USD")
 
   // Settings state (persisted to localStorage for demo)
   const defaultSettings: Settings = {
@@ -278,6 +337,9 @@ export default function AdminPage() {
     guideFilePath: "/guide.pdf",
     templateCsvPath: "/COPE_Exhibition_Import_Template.csv",
     guideObjectUrl: undefined,
+    customAmenities: [],
+    hiddenAmenityIds: [],
+    amenityOverrides: {},
   }
   const [settings, setSettings] = useState<Settings>(() => {
     if (typeof window !== "undefined") {
@@ -288,6 +350,57 @@ export default function AdminPage() {
     }
     return defaultSettings
   })
+
+  const allAmenityCategories = useMemo(() => {
+    const base = baseAmenityGroups.map((g) => g.name)
+    const custom = (settings.customAmenities || []).map((a) => a.category)
+    return Array.from(new Set([...base, ...custom])).sort((a, b) => a.localeCompare(b))
+  }, [settings.customAmenities])
+
+  const allExistingAmenities = useMemo(() => {
+    // Base defaults with overrides/hidden applied
+    const base = baseAmenityGroups.flatMap((g) => g.items.map((i) => {
+      const override = settings.amenityOverrides?.[i.id]
+      const item = {
+        id: i.id,
+        label: override?.label ?? i.label,
+        unitPrice: override?.unitPrice ?? i.unitPrice,
+        category: override?.category ?? g.name,
+        type: "Default" as const,
+      }
+      return item
+    }))
+    .filter((i) => !(settings.hiddenAmenityIds || []).includes(i.id))
+
+    const custom = (settings.customAmenities || []).map((a) => ({
+      ...a,
+      type: "Custom" as const,
+    }))
+    return [...base, ...custom]
+  }, [settings.customAmenities, settings.hiddenAmenityIds, settings.amenityOverrides])
+
+  // Amenity modal state
+  type AmenityRow = { id: string; label: string; unitPrice: number; category: string; type: "Default" | "Custom" }
+  const [amenityModalOpen, setAmenityModalOpen] = useState(false)
+  const [amenityModalMode, setAmenityModalMode] = useState<"edit" | "delete">("edit")
+  const [amenityDraft, setAmenityDraft] = useState<AmenityRow | null>(null)
+  const [amenityDraftLabel, setAmenityDraftLabel] = useState("")
+  const [amenityDraftCategory, setAmenityDraftCategory] = useState("")
+  const [amenityDraftPrice, setAmenityDraftPrice] = useState<number>(0)
+
+  function openEditAmenity(a: AmenityRow) {
+    setAmenityModalMode("edit")
+    setAmenityDraft(a)
+    setAmenityDraftLabel(a.label)
+    setAmenityDraftCategory(a.category)
+    setAmenityDraftPrice(a.unitPrice)
+    setAmenityModalOpen(true)
+  }
+  function openDeleteAmenity(a: AmenityRow) {
+    setAmenityModalMode("delete")
+    setAmenityDraft(a)
+    setAmenityModalOpen(true)
+  }
 
   const totals = useMemo(
     () => ({
@@ -661,16 +774,10 @@ export default function AdminPage() {
                       >
                         <Trash2 size={14} />
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="px-2 bg-transparent transition hover:-translate-y-0.5"
-                        onClick={() => {
-                          setViewItem(e)
-                          setViewOpen(true)
-                        }}
-                      >
-                        <Eye size={14} />
+                      <Button size="sm" variant="outline" className="px-2 bg-transparent transition hover:-translate-y-0.5" asChild>
+                        <a href={`/events/${e.id}`} target="_blank" rel="noopener noreferrer" aria-label="View event page">
+                          <Eye size={14} />
+                        </a>
                       </Button>
                     </TableCell>
                     <TableCell className="font-medium whitespace-normal break-words">{e.name}</TableCell>
@@ -1442,6 +1549,200 @@ export default function AdminPage() {
             </div>
 
             <div className="rounded border bg-card">
+              <div className="border-b bg-muted/50 px-4 py-2 font-medium">Amenities Management</div>
+              <div className="p-4 space-y-4">
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">Add Custom Amenity</div>
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                    <Input 
+                      placeholder="Amenity name" 
+                      id="new-amenity-name"
+                    />
+                    <select id="new-amenity-category" className="block w-full rounded-md border bg-background px-2 py-2">
+                      <option value="">Select category</option>
+                      {allAmenityCategories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <select id="new-amenity-currency" className="block w-full rounded-md border bg-background px-2 py-2" value={settingsCurrency} onChange={(e) => setSettingsCurrency(e.target.value as CurrencyCode)}>
+                      {(["USD","EUR","GBP","CHF","AED","INR","CAD","AUD","CNY"] as CurrencyCode[]).map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <Input 
+                      type="number" 
+                      placeholder="Price" 
+                      id="new-amenity-price"
+                    />
+                    <Button className="cursor-pointer"
+                      onClick={() => {
+                        const name = (document.getElementById("new-amenity-name") as HTMLInputElement)?.value?.trim()
+                        const category = (document.getElementById("new-amenity-category") as HTMLSelectElement)?.value?.trim()
+                        const price = Number((document.getElementById("new-amenity-price") as HTMLInputElement)?.value)
+                        const cc = (document.getElementById("new-amenity-currency") as HTMLSelectElement)?.value as CurrencyCode
+                        
+                        if (!name || !category || isNaN(price)) {
+                          toast({ title: "Missing fields", description: "Please fill all amenity fields." })
+                          return
+                        }
+                        
+                        // Prevent duplicates (same label + category, case-insensitive)
+                        const exists = allExistingAmenities.some(a => a.label.toLowerCase() === name.toLowerCase() && a.category.toLowerCase() === category.toLowerCase())
+                        if (exists) {
+                          toast({ title: "Duplicate amenity", description: "This amenity already exists in the selected category." })
+                          return
+                        }
+                        
+                        // store unitPrice internally in USD
+                        const newAmenity = {
+                          id: `custom-${Date.now()}`,
+                          label: name,
+                          unitPrice: cc ? (price / (convertFromUSD(1, cc))) : price,
+                          category: category
+                        }
+                        
+                        setSettings(s => ({
+                          ...s,
+                          customAmenities: [...s.customAmenities, newAmenity]
+                        }))
+                        
+                        // Clear inputs
+                        ;(document.getElementById("new-amenity-name") as HTMLInputElement).value = ""
+                        ;(document.getElementById("new-amenity-category") as HTMLSelectElement).value = ""
+                        ;(document.getElementById("new-amenity-price") as HTMLInputElement).value = ""
+                        
+                        toast({ title: "Amenity added", description: "Custom amenity has been added successfully." })
+                      }}
+                    >
+                      Add Amenity
+                    </Button>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">All Amenities</div>
+                  <div className="overflow-x-auto rounded border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-28">Actions</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Amenity</TableHead>
+                          <TableHead className="w-48">Price
+                            <span className="ml-2 text-xs text-muted-foreground">Currency:</span>
+                            <select className="ml-2 rounded-md border bg-background px-1 py-0.5 text-xs" value={settingsCurrency} onChange={(e) => setSettingsCurrency(e.target.value as CurrencyCode)}>
+                              {(["USD","EUR","GBP","CHF","AED","INR","CAD","AUD","CNY"] as CurrencyCode[]).map((c) => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {allExistingAmenities.map((amenity, i) => (
+                          <TableRow key={`${amenity.type}-${amenity.id}-${i}`}>
+                            <TableCell className="flex gap-2">
+                              <Button className="cursor-pointer" size="sm" variant="outline" onClick={() => openEditAmenity(amenity as any)} title="Edit">
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button className="cursor-pointer" size="sm" variant="destructive" onClick={() => openDeleteAmenity(amenity as any)} title="Delete">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                            <TableCell className="text-xs">{amenity.type}</TableCell>
+                            <TableCell className="text-sm">{amenity.category}</TableCell>
+                            <TableCell className="font-medium text-sm">{amenity.label}</TableCell>
+                            <TableCell className="text-sm">{formatCurrency(convertFromUSD(amenity.unitPrice, settingsCurrency), settingsCurrency)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Amenity Edit/Delete Modals */}
+            <Dialog open={amenityModalOpen} onOpenChange={setAmenityModalOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>{amenityModalMode === "edit" ? "Edit Amenity" : "Delete Amenity"}</DialogTitle>
+                  <DialogDescription>
+                    {amenityModalMode === "edit" ? "Update the amenity details below." : "This action will remove the amenity from the list."}
+                  </DialogDescription>
+                </DialogHeader>
+                {amenityModalMode === "edit" && amenityDraft && (
+                  <div className="grid grid-cols-1 gap-2">
+                    <div>
+                      <label className="text-sm text-muted-foreground">Amenity</label>
+                      <Input value={amenityDraftLabel} onChange={(e) => setAmenityDraftLabel(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-sm text-muted-foreground">Category</label>
+                      <select className="mt-1 block w-full rounded-md border bg-background px-2 py-2" value={amenityDraftCategory} onChange={(e) => setAmenityDraftCategory(e.target.value)}>
+                        {allAmenityCategories.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-sm text-muted-foreground">Price</label>
+                      <Input type="number" value={amenityDraftPrice} onChange={(e) => setAmenityDraftPrice(Number(e.target.value || 0))} />
+                    </div>
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <Button className="cursor-pointer" variant="secondary" onClick={() => setAmenityModalOpen(false)}>Cancel</Button>
+                      <Button className="cursor-pointer" onClick={() => {
+                        if (!amenityDraft) return
+                        if (isNaN(amenityDraftPrice)) { toast({ title: "Invalid price", description: "Please enter a valid number." }); return }
+                        if (amenityDraft.type === "Default") {
+                          setSettings(s => ({
+                            ...s,
+                            amenityOverrides: {
+                              ...s.amenityOverrides,
+                              [amenityDraft.id]: { label: amenityDraftLabel, unitPrice: amenityDraftPrice, category: amenityDraftCategory }
+                            }
+                          }))
+                        } else {
+                          setSettings(s => ({
+                            ...s,
+                            customAmenities: s.customAmenities.map(a => a.id === amenityDraft.id ? { ...a, label: amenityDraftLabel, unitPrice: amenityDraftPrice, category: amenityDraftCategory } : a)
+                          }))
+                        }
+                        toast({ title: "Amenity updated", description: "Changes have been saved." })
+                        setAmenityModalOpen(false)
+                      }}>Save</Button>
+                    </div>
+                  </div>
+                )}
+                {amenityModalMode === "delete" && amenityDraft && (
+                  <div className="space-y-4">
+                    <div className="text-sm">Are you sure you want to remove "{amenityDraft.label}"?</div>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button className="cursor-pointer" variant="secondary" onClick={() => setAmenityModalOpen(false)}>Cancel</Button>
+                      <Button className="cursor-pointer" variant="destructive" onClick={() => {
+                        if (!amenityDraft) return
+                        if (amenityDraft.type === "Default") {
+                          setSettings(s => ({
+                            ...s,
+                            hiddenAmenityIds: Array.from(new Set([...(s.hiddenAmenityIds || []), amenityDraft.id]))
+                          }))
+                        } else {
+                          setSettings(s => ({
+                            ...s,
+                            customAmenities: s.customAmenities.filter((a) => a.id !== amenityDraft.id)
+                          }))
+                        }
+                        toast({ title: "Amenity removed", description: "Amenity has been removed from the list." })
+                        setAmenityModalOpen(false)
+                      }}>Delete</Button>
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
+
+            <div className="rounded border bg-card">
               <div className="border-b bg-muted/50 px-4 py-2 font-medium">Admin Security</div>
               <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
@@ -1458,7 +1759,7 @@ export default function AdminPage() {
                     <label className="text-sm text-muted-foreground">Confirm New Password</label>
                     <Input type="password" placeholder="Confirm New Password" id="admin-confirm-password" />
                   </div>
-                  <Button
+                  <Button className="cursor-pointer"
                     variant="secondary"
                     onClick={() => {
                       const curr = (document.getElementById("admin-current-password") as HTMLInputElement | null)?.value || ""
